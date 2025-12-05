@@ -138,8 +138,13 @@ class Client:
             self.playEvent = threading.Event()
             self.playEvent.clear()
             self.sendRtspRequest(self.PLAY)
+            # Reset stats for new playback session
+            self.totalBytes = 0
+            self.totalPackets = 0
+            self.lossPackets = 0
+            self.frameNbr = 0
+            self.excepted_seq_num = 0
             self.startTime = time.time()
-            self.updateStatsPanel()
 
     def pauseMovie(self):
         if self.state == self.PLAYING:
@@ -158,11 +163,14 @@ class Client:
     # ---------------------------------------------------------
     def listenRtp(self):
         temp_buf = bytearray()
+        timeout_count = 0
+        max_timeouts = 5  # If no data for 5 consecutive timeouts, stream ended
 
         while True:
             try:
                 data = self.rtpSocket.recv(20480)
                 if data:
+                    timeout_count = 0  # Reset timeout counter on successful receive
                     rtp = RtpPacket()
                     rtp.decode(data)
                     curr_seq = rtp.seqNum()
@@ -191,11 +199,17 @@ class Client:
                     temp_buf += rtp.getPayload()
 
                     if rtp.getMarker() == 1:
+                        #print("Frame size:", len(temp_buf))
                         self.frameNbr += 1
                         self.updateMovie(self.writeFrame(temp_buf))
                         temp_buf = bytearray()
-                    if rtp.getMarker() == 1:
-                        print("Frame size:", len(temp_buf))
+            except socket.timeout:
+                # Socket timeout - check if stream has ended
+                timeout_count += 1
+                if timeout_count >= max_timeouts:
+                    print("[STREAM END] No more data received, stream ended.")
+                    self.state = self.READY  # Stop stats updates
+                    break
             except:
                 if self.playEvent.isSet():
                     break
@@ -248,12 +262,9 @@ class Client:
         fr = self.frameNbr / duration
         self.framerateVar.set(f"Frame Rate: {fr:.1f} fps")
 
-        # Basic jitter estimate (placeholder)
-        if hasattr(self, "jitter"):
-            jitter_ms = self.jitter * 1000
-            self.jitterVar.set(f"Jitter: {jitter_ms:.2f} ms")
-        else:
-            self.jitterVar.set("Jitter: 0 ms")
+        # Jitter display
+        jitter_ms = self.jitter * 1000
+        self.jitterVar.set(f"Jitter: {jitter_ms:.2f} ms")
 
         # Refresh every 0.5 sec
         if self.state == self.PLAYING:
@@ -328,6 +339,8 @@ class Client:
 
                     elif self.requestSent == self.PLAY:
                         self.state = self.PLAYING
+                        # Start stats panel updates now that we're playing
+                        self.updateStatsPanel()
 
                     elif self.requestSent == self.PAUSE:
                         self.playEvent.set()
