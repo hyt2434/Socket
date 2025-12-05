@@ -11,7 +11,6 @@ class VideoStream:
 		
 	def nextFrame(self):
 		"""Get next frame."""
-		data = bytearray()
         # find header of JPEG frame(0xFF 0xD8)
 		while True:
 			# If buffer is empty or less than 2 bytes, read from file

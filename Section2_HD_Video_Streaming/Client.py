@@ -3,6 +3,7 @@ import tkinter.messagebox as tkMessageBox
 from PIL import Image, ImageTk
 import socket, threading, sys, traceback, os, time
 from tkinter import StringVar
+import math
 
 from RtpPacket import RtpPacket
 
@@ -108,13 +109,15 @@ class Client:
         self.framerateVar = StringVar(value="Frame Rate: 0 fps")
         self.packetlossVar = StringVar(value="Packet Loss: 0% (0 packets)")
         self.framesVar = StringVar(value="Frames: 0")
+        self.packetsVar = StringVar(value="Packets: 0")
         self.jitterVar = StringVar(value="Jitter: 0 ms")
 
         Label(self.statsFrame, textvariable=self.bandwidthVar, anchor="w").grid(row=1, column=0, sticky="w")
         Label(self.statsFrame, textvariable=self.framerateVar, anchor="w").grid(row=1, column=1, sticky="w")
         Label(self.statsFrame, textvariable=self.packetlossVar, anchor="w").grid(row=2, column=0, sticky="w")
         Label(self.statsFrame, textvariable=self.framesVar, anchor="w").grid(row=2, column=1, sticky="w")
-        Label(self.statsFrame, textvariable=self.jitterVar, anchor="w").grid(row=3, column=0, sticky="w")
+        Label(self.statsFrame, textvariable=self.packetsVar, anchor="w").grid(row=3, column=0, sticky="w")
+        Label(self.statsFrame, textvariable=self.jitterVar, anchor="w").grid(row=3, column=1, sticky="w")
         
         self.master.grid_rowconfigure(0, weight=1)  
         self.master.grid_rowconfigure(1, weight=0)   
@@ -198,8 +201,12 @@ class Client:
 
                     temp_buf += rtp.getPayload()
 
+                    # Check marker bit to see if frame is complete
                     if rtp.getMarker() == 1:
-                        #print("Frame size:", len(temp_buf))
+                        framesize = len(temp_buf)
+                        packet_count = math.ceil(framesize / 1400)
+                        print(f"Frame {self.frameNbr + 1}: {framesize} bytes needs {packet_count} packets")
+
                         self.frameNbr += 1
                         self.updateMovie(self.writeFrame(temp_buf))
                         temp_buf = bytearray()
@@ -257,6 +264,9 @@ class Client:
 
         # Frames count
         self.framesVar.set(f"Frames: {self.frameNbr}")
+
+        # Packets count
+        self.packetsVar.set(f"Packets: {self.totalPackets}")
 
         # Frame Rate
         fr = self.frameNbr / duration
