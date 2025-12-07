@@ -138,8 +138,9 @@ class Client:
 
     def playMovie(self):
         if self.state == self.READY:
-            threading.Thread(target=self.listenRtp).start()
             self.playEvent.clear()
+            threading.Thread(target=self.listenRtp).start()
+            
             self.sendRtspRequest(self.PLAY)
             # Only reset stats on first play, not when resuming from pause
             if self.frameNbr == 0:
