@@ -45,6 +45,7 @@ class Client:
         self.sessionId = 0
         self.teardownAcked = 0
         self.requestSent = -1
+        self.playEvent = threading.Event()
         
         self.prev_arrival = None
         self.prev_timestamp = None
@@ -138,16 +139,15 @@ class Client:
     def playMovie(self):
         if self.state == self.READY:
             threading.Thread(target=self.listenRtp).start()
-            self.playEvent = threading.Event()
             self.playEvent.clear()
             self.sendRtspRequest(self.PLAY)
-            # Reset stats for new playback session
-            self.totalBytes = 0
-            self.totalPackets = 0
-            self.lossPackets = 0
-            self.frameNbr = 0
-            self.excepted_seq_num = 0
-            self.startTime = time.time()
+            # Only reset stats on first play, not when resuming from pause
+            if self.frameNbr == 0:
+                self.totalBytes = 0
+                self.totalPackets = 0
+                self.lossPackets = 0
+                self.excepted_seq_num = 0
+                self.startTime = time.time()
 
     def pauseMovie(self):
         if self.state == self.PLAYING:
@@ -168,6 +168,7 @@ class Client:
         temp_buf = bytearray()
         timeout_count = 0
         max_timeouts = 5  # If no data for 5 consecutive timeouts, stream ended
+        synced = False  # Track if we've synchronized to frame boundaries
 
         while True:
             try:
@@ -199,6 +200,13 @@ class Client:
                     self.totalBytes += len(data)
                     self.totalPackets += 1
 
+                    # If not synced yet, wait for end of frame marker to sync
+                    if not synced:
+                        if rtp.getMarker() == 1:
+                            synced = True
+                            temp_buf = bytearray()  # Start fresh after sync
+                        continue  # Skip until we're synced
+                    
                     temp_buf += rtp.getPayload()
 
                     # Check marker bit to see if frame is complete
@@ -211,6 +219,8 @@ class Client:
                         self.updateMovie(self.writeFrame(temp_buf))
                         temp_buf = bytearray()
             except socket.timeout:
+                if self.playEvent.isSet():
+                    break
                 # Socket timeout - check if stream has ended
                 timeout_count += 1
                 if timeout_count >= max_timeouts:
